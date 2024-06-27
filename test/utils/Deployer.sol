@@ -178,6 +178,33 @@ contract Deployer is Test {
         vm.stopPrank();
     }
 
+    function _createValidator(uint256 delegation) internal returns (address operatorAddress, address credit) {
+        vm.mockCall(address(0x66), "", hex"01");
+        uint256 toLock = stakeHub.LOCK_AMOUNT();
+
+        operatorAddress = _getNextUserAddress();
+        StakeHub.Commission memory commission = StakeHub.Commission({ rate: 10, maxRate: 100, maxChangeRate: 5 });
+        StakeHub.Description memory description = StakeHub.Description({
+            moniker: string.concat("T", vm.toString(uint24(uint160(operatorAddress)))),
+            identity: vm.toString(operatorAddress),
+            website: vm.toString(operatorAddress),
+            details: vm.toString(operatorAddress)
+        });
+        bytes memory blsPubKey = bytes.concat(
+            hex"00000000000000000000000000000000000000000000000000000000", abi.encodePacked(operatorAddress)
+        );
+        bytes memory blsProof = new bytes(96);
+        address consensusAddress = address(uint160(uint256(keccak256(blsPubKey))));
+
+        vm.prank(operatorAddress);
+        stakeHub.createValidator{ value: delegation + toLock }(
+            consensusAddress, blsPubKey, blsProof, commission, description
+        );
+
+        credit = stakeHub.getValidatorCreditContract(operatorAddress);
+        vm.clearMockedCalls();
+    }
+
     function _encodeOldValidatorSetUpdatePack(
         uint8 code,
         address[] memory valSet

@@ -705,30 +705,6 @@ contract StakeHubTest is Deployer {
         emit log_named_bytes("vote address bytes", vBz);
     }
 
-    function _createValidator(uint256 delegation) internal returns (address operatorAddress, address credit) {
-        operatorAddress = _getNextUserAddress();
-        StakeHub.Commission memory commission = StakeHub.Commission({ rate: 10, maxRate: 100, maxChangeRate: 5 });
-        StakeHub.Description memory description = StakeHub.Description({
-            moniker: string.concat("T", vm.toString(uint24(uint160(operatorAddress)))),
-            identity: vm.toString(operatorAddress),
-            website: vm.toString(operatorAddress),
-            details: vm.toString(operatorAddress)
-        });
-        bytes memory blsPubKey = bytes.concat(
-            hex"00000000000000000000000000000000000000000000000000000000", abi.encodePacked(operatorAddress)
-        );
-        bytes memory blsProof = new bytes(96);
-        address consensusAddress = address(uint160(uint256(keccak256(blsPubKey))));
-
-        uint256 toLock = stakeHub.LOCK_AMOUNT();
-        vm.prank(operatorAddress);
-        stakeHub.createValidator{ value: delegation + toLock }(
-            consensusAddress, blsPubKey, blsProof, commission, description
-        );
-
-        credit = stakeHub.getValidatorCreditContract(operatorAddress);
-    }
-
     function _encodeValidatorSetUpdatePack(
         address[] memory valSet,
         uint64[] memory votingPowers,

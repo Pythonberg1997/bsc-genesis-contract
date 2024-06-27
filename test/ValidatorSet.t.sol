@@ -58,6 +58,15 @@ contract ValidatorSetTest is Deployer {
 
         // set gas price to zero to send system slash tx
         vm.txGasPrice(0);
+
+        // close staking channel
+        // remove this after final sunset hard fork
+        if (crossChain.registeredContractChannelMap(VALIDATOR_CONTRACT_ADDR, STAKING_CHANNELID)) {
+            key = "enableOrDisableChannel";
+            valueBytes = bytes(hex"0800");
+            _updateParamByGovHub(key, valueBytes, address(crossChain));
+            assertTrue(!crossChain.registeredContractChannelMap(VALIDATOR_CONTRACT_ADDR, STAKING_CHANNELID));
+        }
     }
 
     function testDeposit(uint256 amount) public {
@@ -105,12 +114,9 @@ contract ValidatorSetTest is Deployer {
     }
 
     function testGetMiningValidatorsWith41Vals() public {
-        address[] memory newValidators = new address[](41);
-        for (uint256 i; i < 41; ++i) {
-            newValidators[i] = _getNextUserAddress();
-        }
-        vm.prank(address(crossChain));
-        bscValidatorSet.handleSynPackage(STAKING_CHANNELID, _encodeOldValidatorSetUpdatePack(0x00, newValidators));
+        // update validator set
+        uint256 numOfVals = 41;
+        _updateValidatorSet(numOfVals);
 
         address[] memory vals = bscValidatorSet.getValidators();
         (address[] memory miningVals,) = bscValidatorSet.getMiningValidators();
@@ -140,23 +146,19 @@ contract ValidatorSetTest is Deployer {
     }
 
     function testDistributeAlgorithm() public {
-        address[] memory newValidator = new address[](1);
-        newValidator[0] = _getNextUserAddress();
-
         // To reset the incoming
-        vm.prank(address(crossChain));
-        bscValidatorSet.handleSynPackage(STAKING_CHANNELID, _encodeOldValidatorSetUpdatePack(0x00, newValidator));
+        (,address[] memory vals) = _updateValidatorSet(1);
 
-        address val = newValidator[0];
-        address tmp = _getNextUserAddress();
+        address val = vals[0];
+        address nonVal = _getNextUserAddress();
         vm.deal(address(bscValidatorSet), 0);
 
         vm.startPrank(coinbase);
         for (uint256 i; i < 5; ++i) {
             bscValidatorSet.deposit{ value: 1 ether }(val);
-            bscValidatorSet.deposit{ value: 1 ether }(tmp);
+            bscValidatorSet.deposit{ value: 1 ether }(nonVal);
             bscValidatorSet.deposit{ value: 0.1 ether }(val);
-            bscValidatorSet.deposit{ value: 0.1 ether }(tmp);
+            bscValidatorSet.deposit{ value: 0.1 ether }(nonVal);
         }
         vm.stopPrank();
 
@@ -167,16 +169,13 @@ contract ValidatorSetTest is Deployer {
         assertEq(balance, expectedBalance);
         assertEq(incoming, expectedIncoming);
 
-        newValidator[0] = _getNextUserAddress();
-
         vm.expectEmit(false, false, false, true, address(bscValidatorSet));
         emit batchTransfer(expectedIncoming);
         vm.expectEmit(false, false, false, true, address(bscValidatorSet));
         emit systemTransfer(expectedBalance - expectedIncoming);
         vm.expectEmit(false, false, false, false, address(bscValidatorSet));
         emit validatorSetUpdated();
-        vm.prank(address(crossChain));
-        bscValidatorSet.handleSynPackage(STAKING_CHANNELID, _encodeOldValidatorSetUpdatePack(0x00, newValidator));
+        _updateValidatorSet(1);
     }
 
     function testMassiveDistribute() public {
@@ -618,5 +617,31 @@ contract ValidatorSetTest is Deployer {
         uint256 toSystemReward = (value * systemRewardRatio) / systemRewardRatioScale;
         uint256 toBurn = (value * burnRatio) / burnRatioScale;
         incoming = value - toSystemReward - toBurn;
+    }
+
+    function _updateValidatorSet(uint256 number) internal returns (address[] memory, address[] memory) {
+        address[] memory operatorAddrs = new address[](number);
+        address[] memory consensusAddrs = new address[](number);
+        uint64[] memory votingPowers = new uint64[](number);
+        bytes[] memory voteAddrs = new bytes[](number);
+        address operatorAddress;
+        address consensusAddress;
+        uint64 votingPower;
+        bytes memory voteAddress;
+        for (uint256 i; i < number; ++i) {
+            votingPower = 2000 * 1e8;
+            (operatorAddress,) = _createValidator(uint256(votingPower) * 1e10);
+            consensusAddress = stakeHub.getValidatorConsensusAddress(operatorAddress);
+            voteAddress = stakeHub.getValidatorVoteAddress(operatorAddress);
+
+            operatorAddrs[i] = operatorAddress;
+            consensusAddrs[i] = consensusAddress;
+            votingPowers[i] = votingPower;
+            voteAddrs[i] = voteAddress;
+        }
+        vm.prank(block.coinbase);
+        bscValidatorSet.updateValidatorSetV2(consensusAddrs, votingPowers, voteAddrs);
+
+        return (operatorAddrs, consensusAddrs);
     }
 }
